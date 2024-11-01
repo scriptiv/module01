@@ -1,6 +1,6 @@
 #Author: Mikyle Khan
 #File Name: student_qualifications.py
-#Description: This program takes user input to determine if a student qualifies for the Dean's List or Honor Roll if at all
+#Description: This program takes user input to determine if a student qualifies for the Dean's List or Honor Roll if at all.
 
 while True:
     #Get student's last name and check if the user wants to quit
