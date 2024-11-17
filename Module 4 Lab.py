@@ -1,84 +1,61 @@
-from flask import Flask, request, jsonify
-from flask_sqlalchemy import SQLAlchemy
+from flask import Flask, jsonify
+from sqlalchemy import create_engine, Column, String, Integer, Table, MetaData, select, inspect
+import os
 
-#Set up Flask app and database
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///books.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
 
-#Book model
-class Book(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    book_name = db.Column(db.String(100), nullable=False, unique=True)
-    author = db.Column(db.String(100), nullable=False)
-    publisher = db.Column(db.String(100), nullable=True)
+#Initialize SQLAlchemy database with consistent settings
+DATABASE_URL = "sqlite:///books.db"
+engine = create_engine(DATABASE_URL, future=True)  # Use `future=True` for consistent transaction handling
+metadata = MetaData()
 
-    def __repr__(self):
-        return f"<Book {self.book_name}>"
+#Log the absolute path of the database for debugging
+print(f"Using database at: {os.path.abspath(engine.url.database)}")
 
-#Initialize database
-with app.app_context():
-    db.create_all()
+#Define the 'book' table schema
+book = Table(
+    'book', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('title', String, nullable=False),
+    Column('author', String, nullable=False),
+    Column('year', Integer, nullable=False)
+)
 
-#Get all books
-@app.route('/books', methods=['GET'])
+#Debugging Logs: Check if the table exists and create it if necessary
+inspector = inspect(engine)
+if not inspector.has_table("book"):
+    print("Creating 'book' table and inserting data...")
+    metadata.create_all(engine)  #Create the table
+    with engine.connect() as connection:
+        with connection.begin():  #Explicitly handle transaction
+            connection.execute(book.insert(), [
+                {"title": "The Outsider", "author": "Stephen King", "year": 2018},
+                {"title": "If It Bleeds", "author": "Stephen King", "year": 2020},
+                {"title": "The Finisher", "author": "David Baldacci", "year": 2014},
+                {"title": "11/22/63", "author": "Stephen King", "year": 2011},
+                {"title": "The Institute", "author": "Stephen King", "year": 2019}
+            ])
+    print("Data successfully inserted.")
+else:
+    print("'book' table already exists.")
+
+@app.route("/")
+def home():
+    return "Welcome to the Books API! Use /books to get the list of book titles."
+
+@app.route("/books", methods=["GET"])
 def get_books():
-    books = Book.query.all()
-    all_books = []
-    for book in books:
-        book_info = {
-            'id': book.id,
-            'book_name': book.book_name,
-            'author': book.author,
-            'publisher': book.publisher
-        }
-        all_books.append(book_info)
-    return jsonify({'books': all_books})
+    print("Fetching book titles...")
+    stmt = select(book.c.title).order_by(book.c.title)
+    try:
+        with engine.connect() as connection:
+            results = connection.execute(stmt)
+            books = [row[0] for row in results]
+            print(f"Fetched books: {books}")
+            return jsonify(books)
+    except Exception as e:
+        print(f"Error in /books route: {e}")
+        return jsonify({"error": "Failed to fetch books"}), 500
 
-#Get one book
-@app.route('/books/<int:id>', methods=['GET'])
-def get_book(id):
-    book = Book.query.get_or_404(id)
-    return jsonify({
-        'id': book.id,
-        'book_name': book.book_name,
-        'author': book.author,
-        'publisher': book.publisher
-    })
-
-#Add a book
-@app.route('/books', methods=['POST'])
-def add_book():
-    data = request.get_json()
-    new_book = Book(
-        book_name=data['book_name'],
-        author=data['author'],
-        publisher=data.get('publisher')
-    )
-    db.session.add(new_book)
-    db.session.commit()
-    return jsonify({'message': 'New book added successfully!'})
-
-#Update a book
-@app.route('/books/<int:id>', methods=['PUT'])
-def update_book(id):
-    book = Book.query.get_or_404(id)
-    data = request.get_json()
-    book.book_name = data.get('book_name', book.book_name)
-    book.author = data.get('author', book.author)
-    book.publisher = data.get('publisher', book.publisher)
-    db.session.commit()
-    return jsonify({'message': 'Book updated successfully!'})
-
-#Delete a book
-@app.route('/books/<int:id>', methods=['DELETE'])
-def delete_book(id):
-    book = Book.query.get_or_404(id)
-    db.session.delete(book)
-    db.session.commit()
-    return jsonify({'message': 'Book deleted successfully!'})
-
-#Run the app
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
